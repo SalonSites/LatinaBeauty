@@ -841,7 +841,7 @@
         <li><span>📍</span><span>Calle de la Belleza 12, tu ciudad</span></li>
         <li><span>📞</span><span>+34 600 000 000</span></li>
         <li><span>📸</span><span>@karinalatinabeauty</span></li>
-        <li><span>✉️</span><span>hola@karinalatinabeauty.com</span></li>
+        <li><span>✉️</span><span><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="640c0b0805240f05160d0a050805100d0a0506010511101d4a070b09">[email&#160;protected]</a></span></li>
       </ul>
       <div class="hours-box">
         <h4>Horario del salón</h4>
@@ -979,7 +979,7 @@
       <ul class="footer-links" style="gap:14px;">
         <li><a href="#">📍 Calle de la Belleza 12</a></li>
         <li><a href="#">📞 +34 600 000 000</a></li>
-        <li><a href="#">✉️ hola@karinalatinabeauty.com</a></li>
+        <li><a href="#">✉️ <span class="__cf_email__" data-cfemail="19717675785972786b70777875786d7077787b7c786c6d60377a7674">[email&#160;protected]</span></a></li>
         <li><a href="#">📸 @karinalatinabeauty</a></li>
       </ul>
     </div>
@@ -1002,7 +1002,95 @@
   </div>
 </div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+  // ══════════════════════════════════════════
+  // APPS SCRIPT INTEGRATION
+  // Pega aquí tu URL de Apps Script:
+  const APPS_SCRIPT_URL = '';
+  // ══════════════════════════════════════════
+
+  async function apiGet(action) {
+    if (!APPS_SCRIPT_URL) return null;
+    try {
+      const r = await fetch(APPS_SCRIPT_URL + '?action=' + action);
+      return await r.json();
+    } catch(e) { console.warn('API error:', e); return null; }
+  }
+  async function apiPost(action, data) {
+    if (!APPS_SCRIPT_URL) return null;
+    try {
+      const r = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action, data })
+      });
+      return await r.json();
+    } catch(e) { console.warn('API error:', e); return null; }
+  }
+
+  // Load services from API and replace hardcoded ones
+  async function loadServicesFromAPI() {
+    const data = await apiGet('getServicios');
+    if (!data || !Array.isArray(data) || !data.length) return;
+    const grid = document.querySelector('.services-grid');
+    if (!grid) return;
+    grid.innerHTML = data.map(s => `
+      <div class="service-card">
+        <div class="service-icon">${s.icono || '✦'}</div>
+        <div class="service-name">${s.nombre}</div>
+        <div class="service-desc">${s.descripcion || ''} ${s.duracion ? '· '+s.duracion+' min' : ''}</div>
+        <div class="service-price">Desde ${s.precio}€</div>
+      </div>
+    `).join('');
+    // also update booking select
+    const sel = document.getElementById('fService');
+    if (sel) {
+      const grouped = {};
+      data.forEach(s => {
+        if (!grouped[s.categoria]) grouped[s.categoria] = [];
+        grouped[s.categoria].push(s);
+      });
+      const catLabels = {unas:'Uñas',pestanas:'Pestañas',cejas:'Cejas',depilacion:'Depilación',packs:'Packs',otros:'Otros'};
+      sel.innerHTML = '<option value="">— Selecciona un servicio —</option>' +
+        Object.entries(grouped).map(([cat, svcs]) =>
+          `<optgroup label="${catLabels[cat]||cat}">` +
+          svcs.map(s => `<option value="${s.nombre}" data-price="${s.precio}">${s.nombre} (${s.precio}€)</option>`).join('') +
+          '</optgroup>'
+        ).join('');
+    }
+  }
+
+  // Load gallery from API
+  async function loadGalleryFromAPI() {
+    const data = await apiGet('getGaleria');
+    if (!data || !Array.isArray(data) || !data.length) return;
+    const grid = document.getElementById('galleryGrid');
+    if (!grid) return;
+    const catLabels = {unas:'Uñas en gel',pestanas:'Pestañas',cejas:'Cejas',otros:'Galería'};
+    grid.innerHTML = data.slice(0, 8).map((g, i) => `
+      <div class="gallery-item" data-cat="${g.categoria}">
+        <img src="${g.url}" alt="${g.nombre||g.categoria}" onerror="this.parentElement.style.display='none'"/>
+        <div class="gallery-item-overlay"><div class="gallery-item-label">${catLabels[g.categoria]||g.nombre||g.categoria}</div></div>
+      </div>
+    `).join('');
+    // reattach filter
+    filterGallery('all', document.querySelector('.filter-btn.active'));
+  }
+
+  // Load blocked days and config from API
+  let BLOCKED_DAYS_API = [];
+  let API_CONFIG = null;
+  async function loadConfigFromAPI() {
+    const [cfg, fest] = await Promise.all([apiGet('getConfig'), apiGet('getFestivos')]);
+    if (cfg) API_CONFIG = cfg;
+    if (fest && Array.isArray(fest)) {
+      BLOCKED_DAYS_API = fest.map(f => typeof f.fecha === 'string' ? f.fecha : '');
+    }
+    if (API_CONFIG) {
+      document.getElementById('maxAdvance').max = API_CONFIG.maxAdvanceDays || 30;
+    }
+    renderCalendar();
+  }
+
   // ─── CURSOR ───
   const cur = document.getElementById('cursor');
   document.addEventListener('mousemove', e => {
@@ -1088,19 +1176,23 @@
     for(let i=0; i<startDay; i++) { const el=document.createElement('div'); el.className='cal-day empty'; grid.appendChild(el); }
 
     const days = new Date(year, month+1, 0).getDate();
-    const today = new Date();
-    const selectedDate = document.getElementById('fDate').value;
+    const maxDays = (API_CONFIG && API_CONFIG.maxAdvanceDays) ? parseInt(API_CONFIG.maxAdvanceDays) : 30;
+    const maxDate = new Date(); maxDate.setDate(maxDate.getDate() + maxDays);
 
     for(let d=1; d<=days; d++) {
       const el = document.createElement('div');
       const dateStr = `${year}-${month+1}-${d}`;
+      const dateStrPad = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const dayOfWeek = new Date(year, month, d).getDay();
-      const isWeekend = dayOfWeek === 0; // Sunday closed
+      const isWeekend = dayOfWeek === 0;
       const isPast = new Date(year, month, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const isHoliday = BLOCKED_DAYS_API.includes(dateStrPad);
+      const isTooFar = new Date(year, month, d) > maxDate;
 
       el.textContent = d;
-      if(isPast || isWeekend) {
+      if(isPast || isWeekend || isHoliday || isTooFar) {
         el.className = 'cal-day unavailable';
+        if(isHoliday) el.title = 'Día no disponible';
       } else {
         el.className = 'cal-day available';
         const isToday = d===today.getDate() && month===today.getMonth() && year===today.getFullYear();
@@ -1153,7 +1245,7 @@
   renderCalendar();
 
   // ─── BOOKING SUBMIT ───
-  function submitBooking() {
+  async function submitBooking() {
     const name = document.getElementById('fName').value.trim();
     const surname = document.getElementById('fSurname').value.trim();
     const phone = document.getElementById('fPhone').value.trim();
@@ -1167,7 +1259,24 @@
       return;
     }
 
-    // mark as booked
+    const selEl = document.getElementById('fService');
+    const price = selEl.selectedOptions[0]?.dataset?.price || 0;
+
+    // Send to Apps Script
+    const btn = document.querySelector('.btn-book');
+    if(btn){ btn.textContent = 'Enviando reserva...'; btn.disabled = true; }
+    await apiPost('saveCita', {
+      nombre: name + (surname ? ' '+surname : ''),
+      telefono: phone,
+      servicio: service,
+      precio: parseFloat(price)||0,
+      fecha: date, hora: time,
+      estado: 'pending', pagado: false,
+      notas: document.getElementById('fNotes').value.trim()
+    });
+    if(btn){ btn.textContent = '✦ Confirmar reserva'; btn.disabled = false; }
+
+    // mark as booked locally
     if(!BOOKED[date]) BOOKED[date] = [];
     BOOKED[date].push(time);
 
@@ -1199,6 +1308,15 @@
     document.getElementById('modalOverlay').classList.remove('open');
     renderTimeSlots(Object.keys(BOOKED).pop() || '');
   }
+
+  // ─── INIT: load live data from API ───
+  window.addEventListener('DOMContentLoaded', () => {
+    if(APPS_SCRIPT_URL) {
+      loadServicesFromAPI();
+      loadGalleryFromAPI();
+      loadConfigFromAPI();
+    }
+  });
 </script>
 </body>
 </html>
